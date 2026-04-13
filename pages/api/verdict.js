@@ -1,5 +1,5 @@
 // pages/api/verdict.js
-// Synthesizes a verdict — strict, calibrated, source-type aware
+// Evidence-calibrated verdict — respects source quality, not just database hits
 
 import { callGemini, parseJSON } from '../../lib/gemini'
 import { gatherEvidence } from '../../lib/evidence'
@@ -7,32 +7,24 @@ import { gatherEvidence } from '../../lib/evidence'
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { claim, knownSource, contentType } = req.body
+  const { claim, knownSource, contentType, evidenceLevel, namedResearchers } = req.body
   if (!claim) return res.status(400).json({ error: 'No claim provided.' })
 
   const papers = await gatherEvidence(claim)
 
-  const sys = `You are a strict, rigorous scientific peer reviewer assessing marketing claims.
-Your job is to be ACCURATE — neither too harsh nor too generous.
+  const sys = `You are a calibrated marketing scientist giving fair, accurate verdicts on claims.
 
-CORE PRINCIPLE: A claim's verdict must reflect the QUALITY OF EVIDENCE BEHIND IT, not whether it sounds plausible.
+You understand that evidence exists on a spectrum:
+- Peer-reviewed meta-analyses = highest
+- Named researcher + specific quantified finding (e.g. "Paul Dyson found 12x ROI") = high  
+- Research synthesis articles citing named researchers = moderate-high
+- Industry reports with data = moderate
+- Expert opinion without data = low
+- Personal anecdote = none
 
-EVIDENCE HIERARCHY (strictly apply this):
-1. Meta-analyses and systematic reviews → can support "well-supported"
-2. Multiple independent RCTs or large longitudinal studies → can support "well-supported"  
-3. Single strong studies, known practitioner research bodies (IPA, Ehrenberg-Bass, Binet & Field) → "partially-supported"
-4. Industry reports, common wisdom, one-off studies → "partially-supported" at best
-5. Personal opinion, anecdotes, blog posts, no citations → "unsupported" regardless of whether it sounds right
-6. Evidence actively contradicts → "contradicted"
-
-CRITICAL RULES — never break these:
-- If the source is a blog post, Medium article, LinkedIn post, or opinion piece with NO citations: 
-  verdicts can only be "unsupported", "partially-supported" (if aligned with known research), or "contradicted"
-  NEVER give "well-supported" to uncited opinion content
-- "Sounds reasonable" or "aligns with common sense" is NOT evidence — mark as "unsupported"
-- If field knowledge supports a claim but no evidence was retrieved, max verdict is "partially-supported"
-- Only give "well-supported" when there is genuine empirical backing — replicated studies, not vibes
-- Confidence score reflects evidence strength, not claim plausibility. No citations = max 40% confidence.
+Your verdicts must be PROPORTIONATE to evidence quality — not too harsh, not too lenient.
+A claim backed by Orlando Wood's IPA research deserves "well-supported" even if OpenAlex didn't return the exact paper.
+A claim from a pure opinion piece with no sources deserves "unsupported" even if it sounds correct.
 
 Respond with valid JSON only.`
 
@@ -40,42 +32,63 @@ Respond with valid JSON only.`
     ? papers.map((p, i) =>
         `[${i+1}] "${p.title}" (${p.year || 'n/a'}, ${p.source || p.db}, ${p.citations} citations)${p.abstract ? '\nAbstract: ' + p.abstract.substring(0, 400) : ''}`
       ).join('\n\n')
-    : 'No papers retrieved from any database.'
+    : 'No papers retrieved from databases.'
 
-  const prompt = `Assess this marketing claim with strict evidence standards:
+  const prompt = `Assess this marketing claim:
 
 CLAIM: "${claim.text}"
 TYPE: ${claim.type}
-KNOWN SOURCE: ${knownSource || 'unknown — likely a blog post or opinion piece unless otherwise indicated'}
-CONTENT TYPE CONTEXT: ${contentType || 'unknown'}
+EVIDENCE ANCHOR: ${claim.evidenceAnchor || 'none stated'}
+HAS SPECIFIC DATA: ${claim.hasSpecificData ? 'yes' : 'no'}
 
-RETRIEVED PAPERS:
+SOURCE CONTEXT:
+- Content type: ${contentType || 'unknown'}
+- Evidence level: ${evidenceLevel || 'unknown'}/5
+- Named researchers in source: ${(namedResearchers || []).join(', ') || 'none'}
+- Known research body: ${knownSource || 'not identified'}
+
+RETRIEVED PAPERS FROM DATABASES:
 ${paperText}
 
-ASSESSMENT STEPS — work through these in order:
-1. What TYPE of source is this claim from? (peer-reviewed research / practitioner report / blog / opinion / unknown)
-2. Are there retrieved papers that directly address this claim?
-3. Does established marketing science have consensus on this? Name specific studies if yes.
-4. What is the genuine evidence quality — not what sounds right, but what is proven?
-5. Are there important caveats that change the interpretation?
+ASSESSMENT APPROACH:
+1. Check if this claim has a named evidence anchor (researcher/institution + specific number)
+   If YES: treat as practitioner research → can be "well-supported" or "partially-supported"
+   
+2. Check retrieved papers for direct or adjacent support
+   
+3. Apply your expert knowledge of marketing science:
+   - Orlando Wood / System1 / IPA creative research → well-established
+   - Paul Dyson / Ebiquity advertising profitability → well-established  
+   - Binet & Field / IPA effectiveness → well-established
+   - Ehrenberg-Bass / Byron Sharp → well-established
+   - Generic "studies show" without source → treat skeptically
 
-VERDICT GUIDANCE:
-- "well-supported": Multiple strong studies confirm. Cannot apply to opinion/blog content.
-- "partially-supported": Some evidence exists OR known research bodies align, but not definitive
-- "contested": Real disagreement exists in literature between researchers
-- "unsupported": No meaningful evidence base. Use for opinion pieces without citations, unverified claims.
-- "contradicted": Evidence actively contradicts this claim
+4. Consider if the claim is directionally correct even if exact numbers vary
+
+VERDICT RULES:
+- "well-supported": Backed by named research OR multiple converging database papers. Specific numbers from known researchers qualify.
+- "partially-supported": Directionally correct per research consensus but exact claim lacks direct evidence, OR single study support
+- "contested": Genuine disagreement exists — some research supports, some contradicts
+- "unsupported": No research anchor, no database evidence, no field consensus. Use for pure opinion claims.
+- "contradicted": Evidence actively contradicts this
+
+CONFIDENCE CALIBRATION:
+- Named researcher + specific number: 65-85%
+- Retrieved papers support: +10-15%  
+- No evidence anchor + no papers: 20-35% max
+- Pure opinion source: 15-30% max
 
 Return JSON:
 {
-  "verdict": "well-supported" | "partially-supported" | "contested" | "unsupported" | "contradicted",
+  "verdict": "well-supported"|"partially-supported"|"contested"|"unsupported"|"contradicted",
   "confidence": 0-100,
-  "evidenceQuality": "high" | "moderate" | "low" | "none",
-  "sourceType": "peer-reviewed" | "practitioner-research" | "industry-report" | "opinion" | "unknown",
-  "knownResearchBodies": ["only if genuinely applicable — e.g. Binet & Field, Ehrenberg-Bass"],
-  "summary": "2-3 sentences: what evidence actually shows, being honest about gaps",
-  "caveats": ["only genuine caveats"],
-  "generalizabilityWarning": "real scope limitation or null",
+  "evidenceQuality": "high"|"moderate"|"low"|"none",
+  "sourceType": "peer-reviewed"|"practitioner-research"|"research-synthesis"|"industry-report"|"informed-opinion"|"pure-opinion"|"unknown",
+  "knownResearchBodies": ["specific bodies that support this — only if genuinely applicable"],
+  "evidenceAnchorUsed": "the specific researcher/finding used to assess this, or null",
+  "summary": "2-3 sentences: honest synthesis of what evidence shows and why this verdict",
+  "caveats": ["only caveats that genuinely matter"],
+  "generalizabilityWarning": "real limitation or null",
   "paperAssessments": [
     {"index": 1, "relevance": 0-100, "stance": "supports"|"neutral"|"contradicts", "note": "brief"}
   ]

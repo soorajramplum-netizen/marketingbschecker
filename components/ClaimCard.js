@@ -79,6 +79,13 @@ export default function ClaimCard({ result, index }) {
             </div>
           )}
 
+          {verdict?.evidenceAnchorUsed && (
+            <div className={styles.anchorBlock}>
+              <span className={styles.anchorLabel}>Evidence anchor:</span>
+              <span className={styles.anchorText}>{verdict.evidenceAnchorUsed}</span>
+            </div>
+          )}
+
           <blockquote className={styles.synthesis}>
             {verdict?.summary || 'No synthesis available.'}
           </blockquote>

@@ -12,11 +12,14 @@ const LOG_STEPS = [
 ]
 
 const CONTENT_TYPE_META = {
-  'peer-reviewed':       { label: 'Peer-reviewed research', color: 'var(--c-supported)',   bg: 'var(--c-supported-bg)' },
-  'practitioner-research':{ label: 'Practitioner research', color: 'var(--c-supported)',   bg: 'var(--c-supported-bg)' },
-  'industry-report':     { label: 'Industry report',        color: 'var(--c-partial)',     bg: 'var(--c-partial-bg)' },
-  'opinion':             { label: 'Opinion / blog post',    color: 'var(--c-contradicted)',bg: 'var(--c-contradicted-bg)' },
-  'unknown':             { label: 'Unknown source type',    color: 'var(--c-unsupported)', bg: 'var(--c-unsupported-bg)' },
+  'peer-reviewed':          { label: 'Peer-reviewed research',    color: 'var(--c-supported)',    bg: 'var(--c-supported-bg)',    icon: '📄' },
+  'practitioner-research':  { label: 'Practitioner research',     color: 'var(--c-supported)',    bg: 'var(--c-supported-bg)',    icon: '🔬' },
+  'research-synthesis':     { label: 'Research synthesis',        color: '#60a5fa',               bg: 'rgba(96,165,250,0.08)',    icon: '📚' },
+  'industry-report':        { label: 'Industry report',           color: 'var(--c-partial)',      bg: 'var(--c-partial-bg)',      icon: '📊' },
+  'informed-opinion':       { label: 'Informed opinion',          color: 'var(--c-partial)',      bg: 'var(--c-partial-bg)',      icon: '💡' },
+  'pure-opinion':           { label: 'Opinion / no sources',      color: 'var(--c-contradicted)', bg: 'var(--c-contradicted-bg)', icon: '💬' },
+  'opinion':                { label: 'Opinion / no sources',      color: 'var(--c-contradicted)', bg: 'var(--c-contradicted-bg)', icon: '💬' },
+  'unknown':                { label: 'Unknown source type',       color: 'var(--c-unsupported)',  bg: 'var(--c-unsupported-bg)',  icon: '?' },
 }
 
 export default function Home() {
@@ -32,6 +35,8 @@ export default function Home() {
   const [contentType, setContentType]         = useState(null)
   const [contentTypeReason, setContentTypeReason] = useState(null)
   const [hasCitations, setHasCitations]       = useState(null)
+  const [evidenceLevel, setEvidenceLevel]     = useState(null)
+  const [namedResearchers, setNamedResearchers] = useState([])
   const resultsRef = useRef(null)
 
   function updateStep(id, status, labelOverride) {
@@ -72,12 +77,14 @@ export default function Home() {
       const extData = await extRes.json()
       if (extData.error) throw new Error(extData.error)
 
-      const { claims, contentSummary, model, provider, knownSource, contentType: ct, contentTypeReason: ctr, hasCitations: hc } = extData
+      const { claims, contentSummary, model, provider, knownSource, contentType: ct, contentTypeReason: ctr, hasCitations: hc, evidenceLevel: el, namedResearchers: nr } = extData
       setUsedModel(provider ? model + ' · ' + provider : model)
       setSummary(contentSummary)
       setContentType(ct || 'unknown')
       setContentTypeReason(ctr || null)
       setHasCitations(hc)
+      setEvidenceLevel(el || null)
+      setNamedResearchers(nr || [])
       updateStep('extract', 'done', claims.length + ' claim' + (claims.length !== 1 ? 's' : '') + ' extracted · ' + (ct || 'unknown') + ' source')
 
       if (!claims.length) {
@@ -94,7 +101,7 @@ export default function Home() {
           fetch('/api/verdict', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ claim, knownSource, contentType: ct }),
+            body: JSON.stringify({ claim, knownSource, contentType: ct, evidenceLevel: el || evidenceLevel, namedResearchers: nr || namedResearchers }),
           })
             .then(r => r.json())
             .then(d => ({ claim, ...d }))
@@ -218,18 +225,34 @@ export default function Home() {
             <div className={styles.sourceTypeBanner} style={{ background: ctMeta.bg, borderColor: ctMeta.color + '33' }}>
               <div className={styles.stLeft}>
                 <span className={styles.stBadge} style={{ color: ctMeta.color, borderColor: ctMeta.color + '40', background: ctMeta.color + '15' }}>
-                  {ctMeta.label}
+                  {ctMeta.icon} {ctMeta.label}
                 </span>
-                {hasCitations === false && (
+                {evidenceLevel && (
+                  <span className={styles.stBadge} style={{ color: ctMeta.color, borderColor: ctMeta.color + '40', background: ctMeta.color + '15' }}>
+                    Evidence level {evidenceLevel}/5
+                  </span>
+                )}
+                {hasCitations === false && (contentType === 'pure-opinion' || contentType === 'opinion') && (
                   <span className={styles.noCiteBadge}>No citations detected</span>
                 )}
               </div>
+              {namedResearchers && namedResearchers.length > 0 && (
+                <div className={styles.stResearchers}>
+                  <span className={styles.stResearchersLabel}>Sources referenced:</span>
+                  {namedResearchers.map(r => <span key={r} className={styles.stResearcherTag}>{r}</span>)}
+                </div>
+              )}
               {contentTypeReason && (
                 <p className={styles.stReason}>{contentTypeReason}</p>
               )}
-              {contentType === 'opinion' && (
+              {(contentType === 'pure-opinion' || contentType === 'opinion') && (
                 <p className={styles.stWarning}>
-                  This is an opinion piece without citations. Verdicts reflect alignment with research — not validation of the author&apos;s conclusions.
+                  Opinion content without citations. Verdicts reflect whether claims align with research — not a validation of the author&apos;s conclusions.
+                </p>
+              )}
+              {contentType === 'research-synthesis' && (
+                <p className={styles.stNote}>
+                  This article synthesises findings from named researchers. Claims with specific attributed findings are assessed at practitioner-research level.
                 </p>
               )}
             </div>
