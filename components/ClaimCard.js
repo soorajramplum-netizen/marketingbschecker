@@ -63,7 +63,7 @@ export default function ClaimCard({ result, index }) {
             <span className={styles.barVal}>{verdict.confidence || 0}%</span>
           </div>
 
-          <blockquote className={styles.synthesis}>{verdict.summary || 'No synthesis available.'}</blockquote>
+          <>{ verdict.knownResearchBodies?.length > 0 && (<div className={styles.researchBodies}><span className={styles.rbLabel}>Known research: </span>{verdict.knownResearchBodies.map(b => <span key={b} className={styles.rbTag}>{b}</span>)}</div>) }<blockquote className={styles.synthesis}>{verdict.summary || 'No synthesis available.'}</blockquote></>
 
           {verdict.generalizabilityWarning && (
             <div className={styles.warnBox}>

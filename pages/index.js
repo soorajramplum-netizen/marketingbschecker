@@ -60,10 +60,10 @@ export default function Home() {
       const extRes = await fetch('/api/extract', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
       const extData = await extRes.json()
       if (extData.error) throw new Error(extData.error)
-      const { claims, contentSummary, model } = extData
-      setUsedModel(model)
+      const { claims, contentSummary, model, provider, knownSource } = extData
+      setUsedModel(provider ? `${model} · ${provider}` : model)
       setSummary(contentSummary)
-      updateStep('extract', 'done', `${claims.length} claim${claims.length !== 1 ? 's' : ''} extracted · ${model}`)
+      updateStep('extract', 'done', `${claims.length} claim${claims.length !== 1 ? 's' : ''} extracted${knownSource ? ' · ' + knownSource : ''} · ${model}`)
 
       if (!claims.length) {
         setError('No falsifiable claims found. The content may contain only opinions or vague assertions.')
@@ -76,7 +76,7 @@ export default function Home() {
 
       const verdictResults = await Promise.all(
         claims.map(claim =>
-          fetch('/api/verdict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claim }) })
+          fetch('/api/verdict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claim, knownSource }) })
             .then(r => r.json())
             .then(d => ({ claim, ...d }))
         )
@@ -96,7 +96,7 @@ export default function Home() {
 
   const score = results ? Math.round(
     results.reduce((acc, r) => {
-      const map = { 'well-supported': 100, 'partially-supported': 65, 'contested': 40, 'unsupported': 20, 'contradicted': 0 }
+      const map = { 'well-supported': 100, 'partially-supported': 78, 'contested': 50, 'unsupported': 20, 'contradicted': 0 }
       return acc + (map[r.verdict?.verdict] || 20)
     }, 0) / results.length
   ) : null

@@ -3,8 +3,6 @@
 
 import { callGemini, parseJSON } from '../../lib/gemini'
 
-const GEMINI_KEY = process.env.GEMINI_KEY || 'AIzaSyAetA3okV1BA9TEN8lRfBzdccxbpL2opBs'
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -12,32 +10,42 @@ export default async function handler(req, res) {
   if (!text || text.trim().length < 20)
     return res.status(400).json({ error: 'Please provide at least 20 characters of content.' })
 
-  const sys = `You are a rigorous scientific analyst specializing in marketing science, consumer psychology, and behavioral economics. Extract discrete, falsifiable claims only. Respond with valid JSON only — no markdown, no preamble.`
+  const sys = `You are a rigorous marketing scientist extracting specific, falsifiable claims from content.
+You understand both academic marketing research AND practitioner research (IPA, Ehrenberg-Bass, Binet & Field, etc.).
+Respond with valid JSON only — no markdown, no preamble.`
 
   const prompt = `Analyze this marketing content and extract all specific, falsifiable claims.
 
-Focus on: statistics, causal assertions, behavioral claims, effectiveness claims, ROI claims, trend assertions, and definitional claims about how marketing works.
+Focus on: statistics, causal assertions, behavioral claims, effectiveness claims, ROI claims, 
+trend assertions, and claims about how marketing works.
 
-Ignore: pure opinions, vague statements, subjective assessments, or motivational language.
+Ignore: pure opinions, vague motivational statements, or non-falsifiable assertions.
 
 For each claim:
 - id: "c1", "c2", etc.
-- text: concise version of the claim
-- type: one of [statistical, causal, behavioral, trend, effectiveness, definitional]
-- searchQueries: array of 3 strings:
-  1. Specific query (close to the claim)
-  2. Conceptual query (the underlying mechanism)
-  3. Domain-level query (broad field)
+- text: the claim as stated, concise but complete
+- type: "statistical" | "causal" | "behavioral" | "trend" | "effectiveness" | "definitional"
+- searchQueries: array of 3 strings optimised for academic database search:
+  1. Specific: close to the claim (e.g. "long-term advertising effects brand equity")
+  2. Mechanistic: the underlying principle (e.g. "advertising carryover effects sales")  
+  3. Domain: broad field search (e.g. "advertising effectiveness marketing ROI")
+  NOTE: Use academic/research terminology, not the exact claim wording.
+  NOTE: If this is from known research (Binet & Field, Ehrenberg-Bass, IPA), include that in query 1.
 
-Return: {"claims": [...], "contentSummary": "one sentence"}
+Return JSON:
+{
+  "claims": [...],
+  "contentSummary": "one sentence describing what this content is about",
+  "knownSource": "name of research paper/body if recognisable, or null"
+}
 
-Content:
+Content to analyze:
 ${text.substring(0, 7000)}`
 
   try {
-    const { text: raw, model } = await callGemini(prompt, sys, GEMINI_KEY)
+    const { text: raw, model, provider } = await callGemini(prompt, sys)
     const parsed = parseJSON(raw)
-    return res.status(200).json({ ...parsed, model })
+    return res.status(200).json({ ...parsed, model, provider })
   } catch (e) {
     return res.status(500).json({ error: e.message })
   }
